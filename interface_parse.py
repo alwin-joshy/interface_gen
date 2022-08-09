@@ -33,8 +33,8 @@ class Interface:
         return str(self.__class__) + ": " + str(self.__dict__)
 
 class Include():
-    def __init__(self,name):
-        self.name = name
+    def __init__(self,header):
+        self.header = header
     def __str__(self):
         return str(self.__class__) + ": " + str(self.__dict__)
 
@@ -68,12 +68,13 @@ class Method:
 class Arg:
     def __str__(self):
         return str(self.__class__) + ": " + str(self.__dict__)
-    def __init__(self, ctype, name, size, arg_type, direction):
+    def __init__(self, ctype, name, size, arg_type, direction, const):
         self.ctype = ctype
         self.name = name
         self.size = size
         self.arg_type = arg_type
         self.direction = direction
+        self.const = const
         
     
 class InterfaceParser:
@@ -104,7 +105,7 @@ class InterfaceParser:
                 raise RuntimeError('Include must be in interface scope')
             else:
                 self.scope.append(Scope.INCLUDE)
-                self.includes.append(Include(attrib['file']))
+                self.includes.append(Include(attrib['header']))
                 
         elif tag == 'define':
             if self.scope[-1] != Scope.INTERFACE:
@@ -135,7 +136,7 @@ class InterfaceParser:
                     # More extensive checks required
                     self.cur_method = Method(attrib['name'],int(attrib['id']),attrib['return_type'])
                 else:
-                    raise RuntimeError('method return type not defined')
+                    raise RuntimeError('method return type not defined "%s"' % attrib['return_type'] )
                 
         elif tag == 'in':
             if self.scope[-1] != Scope.METHOD:
@@ -143,15 +144,20 @@ class InterfaceParser:
             else:
                 self.scope.append(Scope.IN)
                 ctype = attrib['ctype']
+                if 'const' in attrib.keys():
+                    const = attrib['const']
+                else:
+                    const = 'false'
                 if ctype in self.ctypes:
                     
                     self.cur_method.add_arg(Arg(attrib['ctype'],
                                                 attrib['name'],
                                                 self.ctypes[ctype].size,
                                                 self.ctypes[ctype].arg_type,
-                                                ArgDirection.IN))
+                                                ArgDirection.IN,
+                                                const))
                 else:
-                    raise RuntimeError('Args ctype not defined')
+                    raise RuntimeError(f'Args ctype not defined "{ctype}"')
                 
         elif tag == 'out':
             if self.scope[-1] != Scope.METHOD:
@@ -165,7 +171,7 @@ class InterfaceParser:
                                                 attrib['name'],
                                                 self.ctypes[ctype].size,
                                                 self.ctypes[ctype].arg_type,
-                                                ArgDirection.OUT))
+                                                ArgDirection.OUT, 'false'))
                 else:
                     raise RuntimeError('Args ctype not defined')
 
@@ -181,7 +187,7 @@ class InterfaceParser:
                                                 attrib['name'],
                                                 self.ctypes[ctype].size,
                                                 self.ctypes[ctype].arg_type,
-                                                ArgDirection.INOUT))
+                                                ArgDirection.INOUT, 'false'))
                 else:
                     raise RuntimeError('Args ctype not defined')
 

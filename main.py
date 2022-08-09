@@ -2,9 +2,11 @@
 import sys, argparse
 import xml.etree.ElementTree as ET
 from interface_parse import InterfaceParser
-from interface_gen import InterfacePrint
+from interface_gen import InterfacePrint, InterfaceClientStubs
             
-generators = {'printer' : InterfacePrint}
+generators = {'printer' : InterfacePrint,
+              'clientstubs' : InterfaceClientStubs
+}
         
 def main() -> int:
     global wordsize_in_bytes
