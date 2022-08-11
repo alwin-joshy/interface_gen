@@ -46,20 +46,20 @@ class Define:
         return str(self.__class__) + ": " + str(self.__dict__)
 
 class CType:
-    def __init__(self, name, arg_type, size):
+    def __init__(self, name, arg_type):
         self.name = name
         self.arg_type = arg_type
-        self.size = size
     def __str__(self):
         return str(self.__class__) + ": " + str(self.__dict__)
 
 class Method:
     def __str__(self):
         return str(self.__class__) + ": " + str(self.__dict__)
-    def __init__(self, name, id, return_type):
+    def __init__(self, name, id, return_type, cap):
         self.name = name
         self.id = id
         self.return_type = return_type
+        self.cap = cap
         self.args = []
 
     def add_arg(self, arg):
@@ -68,10 +68,9 @@ class Method:
 class Arg:
     def __str__(self):
         return str(self.__class__) + ": " + str(self.__dict__)
-    def __init__(self, ctype, name, size, arg_type, direction, const):
+    def __init__(self, ctype, name, arg_type, direction, const):
         self.ctype = ctype
         self.name = name
-        self.size = size
         self.arg_type = arg_type
         self.direction = direction
         self.const = const
@@ -119,13 +118,7 @@ class InterfaceParser:
                 raise RuntimeError('Define must be in <interface> scope')
             else:
                 self.scope.append(Scope.CTYPE)
-                if 'size_in_words' in attrib:
-                    size = int(attrib['size_in_words']) * self.wordsize
-                elif 'size' in attrib:
-                    size = int(attrib['size'])
-                else:
-                     raise RuntimeError('ctype size missing')   
-                self.ctypes[attrib['name']] = CType(attrib['name'], attrib['type'], size)
+                self.ctypes[attrib['name']] = CType(attrib['name'], attrib['type'])
         
         elif tag == 'method':
             if self.scope[-1] != Scope.INTERFACE:
@@ -134,7 +127,7 @@ class InterfaceParser:
                 self.scope.append(Scope.METHOD)
                 if attrib['return_type'] in self.ctypes:
                     # More extensive checks required
-                    self.cur_method = Method(attrib['name'],int(attrib['id']),attrib['return_type'])
+                    self.cur_method = Method(attrib['name'],int(attrib['id']),attrib['return_type'],attrib['epcap'])
                 else:
                     raise RuntimeError('method return type not defined "%s"' % attrib['return_type'] )
                 
@@ -152,7 +145,6 @@ class InterfaceParser:
                     
                     self.cur_method.add_arg(Arg(attrib['ctype'],
                                                 attrib['name'],
-                                                self.ctypes[ctype].size,
                                                 self.ctypes[ctype].arg_type,
                                                 ArgDirection.IN,
                                                 const))
@@ -169,7 +161,6 @@ class InterfaceParser:
                     
                     self.cur_method.add_arg(Arg(attrib['ctype'],
                                                 attrib['name'],
-                                                self.ctypes[ctype].size,
                                                 self.ctypes[ctype].arg_type,
                                                 ArgDirection.OUT, 'false'))
                 else:
@@ -185,7 +176,6 @@ class InterfaceParser:
                     
                     self.cur_method.add_arg(Arg(attrib['ctype'],
                                                 attrib['name'],
-                                                self.ctypes[ctype].size,
                                                 self.ctypes[ctype].arg_type,
                                                 ArgDirection.INOUT, 'false'))
                 else:
