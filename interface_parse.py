@@ -25,16 +25,33 @@ class IdlArgTypes(Enum):
     CAP = auto()
     
 class Interface:
-    def __init__(self, includes, defines, methods):
-        self.includes = includes
-        self.defines = defines
-        self.methods = methods
+
+    def __init__(self, disp, err, pre):
+        self.dispatch_func = disp
+        self.server_prefix = pre
+        self.error_func = err
+        self.methods = []
+        self.includes = []
+        self.defines = []
+        
     def __str__(self):
         return str(self.__class__) + ": " + str(self.__dict__)
 
+    def add_method(self, method):
+        self.methods.append(method)
+
+    def add_include(self, inc):
+        self.includes.append(inc)
+        
+    def add_define(self, d):
+        self.defines.append(d)
+        
 class Include():
-    def __init__(self,header):
+    def __init__(self,header,client=True, server=True):
         self.header = header
+        self.client = client
+        self.server = server
+
     def __str__(self):
         return str(self.__class__) + ": " + str(self.__dict__)
 
@@ -42,9 +59,11 @@ class Define:
     def __init__(self,name,value):
         self.name = name
         self.value = value
+
     def __str__(self):
         return str(self.__class__) + ": " + str(self.__dict__)
-
+    
+    
 class CType:
     def __init__(self, name, arg_type):
         self.name = name
@@ -77,17 +96,14 @@ class Arg:
         
     
 class InterfaceParser:
-    scope = [Scope.XML]
-    interface_name = ''
-    includes = []
-    defines = []
-    ctypes = dict()
-    methods = []
-    args = []
-    wordsize = 0
 
     def __init__(self, wordsize):
         self.wordsize = wordsize
+        self.scope = [Scope.XML]
+        self.ctypes = dict()
+        self.args = []
+        self.wordsize = 0
+        self.interface = None
     
     def __str__(self):
         return str(self.__class__) + ": " + str(self.__dict__)
@@ -98,20 +114,27 @@ class InterfaceParser:
                 raise RuntimeError('Only a single interface allowed')
             else:
                 self.scope.append(Scope.INTERFACE)
+                self.interface = Interface(attrib['dispatch_func'], attrib['error_func'], attrib['server_prefix']);
                 
         elif tag == 'include':
             if self.scope[-1] != Scope.INTERFACE:
                 raise RuntimeError('Include must be in interface scope')
             else:
                 self.scope.append(Scope.INCLUDE)
-                self.includes.append(Include(attrib['header']))
+                client=True
+                server=True
+                if 'client' in attrib.keys():
+                    client = str(attrib['client']).lower() == 'true'
+                if 'server' in attrib.keys():
+                    server = attrib['server'].lower() == 'true'
+                self.interface.add_include(Include(attrib['header'],client,server))
                 
         elif tag == 'define':
             if self.scope[-1] != Scope.INTERFACE:
                 raise RuntimeError('Define must be in interface scope')
             else:
                 self.scope.append(Scope.DEFINE)
-                self.defines.append(Define(attrib['name'],attrib['value']))
+                self.interface.add_define(Define(attrib['name'],attrib['value']))
                 
         elif tag == 'ctype':
             if self.scope[-1] != Scope.INTERFACE:
@@ -127,7 +150,7 @@ class InterfaceParser:
                 self.scope.append(Scope.METHOD)
                 if attrib['return_type'] in self.ctypes:
                     # More extensive checks required
-                    self.cur_method = Method(attrib['name'],int(attrib['id']),attrib['return_type'],attrib['epcap'])
+                    self.cur_method = Method(attrib['name'],int(attrib['id']),attrib['return_type'],attrib['clientcap'])
                 else:
                     raise RuntimeError('method return type not defined "%s"' % attrib['return_type'] )
                 
@@ -210,7 +233,7 @@ class InterfaceParser:
                 raise RuntimeError('Missing method start')
             else:
                 self.scope.pop()
-                self.methods.append(self.cur_method)
+                self.interface.add_method(self.cur_method)
                 
         elif tag == 'in':
             if self.scope[-1] != Scope.IN:
@@ -238,9 +261,7 @@ class InterfaceParser:
             if self.scope[-1] != Scope.XML:
                 raise RuntimeError('Premature end of file')
             else:
-                return Interface(self.includes,
-                                 self.defines,
-                                 self.methods)
+                return self.interface
 
 
 

@@ -1,5 +1,5 @@
 #!/usr/bin/python3
-from interface_parse import Interface, ArgDirection
+from interface_parse import Interface, ArgDirection, Method
 
 class InterfaceGen:
     preamble = '''
@@ -27,16 +27,16 @@ class InterfaceGen:
 
 
 
-    def ipc_in_struct_name(self,method):
+    def ipc_in_struct_name(self,method : str):
         return f'{method}_ipc_in'
 
-    def ipc_out_struct_name(self,method):
+    def ipc_out_struct_name(self,method: str):
         return f'{method}_ipc_out'
 
-    def gen_ipc_in_struct(self,method, args, indent=''):
+    def gen_ipc_in_struct(self,method: Method, indent='', name_prefix=''):
         buf=''
-        buf=buf+f'{indent}struct {self.ipc_in_struct_name(method)} {{'+'\n'
-        for a in args:
+        buf=buf+f'{indent}struct {name_prefix}{self.ipc_in_struct_name(method.name)} {{'+'\n'
+        for a in method.args:
             if a.direction != ArgDirection.OUT:
                 if a.const =='true':
                     const = 'const '
@@ -46,9 +46,9 @@ class InterfaceGen:
         buf=buf+f'{indent}}};'+'\n'
         return buf
 
-    def gen_ipc_out_struct(self,method, indent=''):
+    def gen_ipc_out_struct(self, method: Method, indent='',name_prefix=''):
         buf=''
-        buf=buf+f'{indent}struct {self.ipc_out_struct_name(method.name)} {{'+'\n'
+        buf=buf+f'{indent}struct {name_prefix}{self.ipc_out_struct_name(method.name)} {{'+'\n'
         if method.return_type != 'void':
             buf=buf+f'{indent}    {method.return_type} __ret;'+'\n'
             for a in method.args:
@@ -81,6 +81,10 @@ class InterfacePrint(InterfaceGen):
             print(', '.join(map(self.formatarg,i.args)),end='')
             print(f') -> {i.return_type}')
 
+
+
+# should add check the id are greater than seL4_NumErrors
+
 class InterfaceClientStubs(InterfaceGen):
     def __str__(self):
 
@@ -94,7 +98,8 @@ class InterfaceClientStubs(InterfaceGen):
             print(self.preamble, file=hf)
             
             for i in self.interface.includes:
-                print(f'#include {i.header}',file=hf)
+                if i.client:
+                    print(f'#include {i.header}',file=hf)
 
             for i in self.interface.defines:
                 print(f'#define {i.name} ({i.value})', file=hf)
@@ -117,8 +122,8 @@ class InterfaceClientStubs(InterfaceGen):
             print(self.preamble, file=cf)
             print(f'#include <{self.filebasename + ".h"}>',file=cf)
 
-            for i in self.interface.includes:
-                print(f'#include {i.header}',file=cf)
+            #for i in self.interface.includes:
+            #    print(f'#include {i.header}',file=cf)
 
 
             for i in self.interface.methods:
@@ -131,7 +136,7 @@ class InterfaceClientStubs(InterfaceGen):
 
                 
                 print(')\n{',file=cf)
-                print(self.gen_ipc_in_struct(i.name,i.args,'    '),file=cf)
+                print(self.gen_ipc_in_struct(i,'    '),file=cf)
                 print(self.gen_ipc_out_struct(i,'    '),file=cf)
                 print(f'    seL4_MessageInfo_t message;', file=cf)
                 print(f'    seL4_IPCBuffer *ipc_buf = seL4_GetIPCBuffer();', file=cf)
@@ -149,3 +154,79 @@ class InterfaceClientStubs(InterfaceGen):
                 if i.return_type != 'void':
                     print(f'    return argsout_ptr->__ret;', file=cf)
                 print('}\n\n',file=cf)
+
+
+
+#############
+# Server side generation
+#
+# Note: The assumption here is that the compiler and developer combine
+# sanely with a switch that results in resonable code. Needs some
+# investigation to confirm. A good analysis in the space is the
+# following paper.
+#
+# Roger A. Sayle, "A Superoptimizer Analysis of Multiway Branch Code
+# Generation", Proc. GCC Summit, 2008
+
+
+class InterfaceServerDispatch(InterfaceGen):
+    def __str__(self):
+
+        return str(self.__class__) + ": " + str(self.__dict__)
+
+    def __init__(self, interface, filebasename = '', wordsize=8):
+
+        super().__init__(interface, filebasename, wordsize)
+
+        with open(self.filebasename + '.h', 'w') as hf:
+            print(self.preamble, file=hf)
+            
+            for i in self.interface.includes:
+                if i.server:
+                    print(f'#include {i.header}',file=hf)
+
+            for i in self.interface.defines:
+                print(f'#define {i.name} ({i.value})', file=hf)
+
+            print(f'extern seL4_MessageInfo_t {self.interface.dispatch_func}(seL4_CPtr ep, seL4_MessageInfo_t msginfo, void * reply, void *data);',file=hf)
+            print(f'extern seL4_MessageInfo_t {self.interface.error_func}(seL4_CPtr ep, seL4_MessageInfo_t msginfo, void *reply, void *data);',file=hf)
+
+            for i in self.interface.methods:
+                print('\n/****************************************', file=hf)
+                print(f' * extern {i.return_type} {i.name}(',end='', file=hf)
+                if len(i.args) != 0:
+                    print(', '.join(map(self.formatarg,i.args)),end='',file=hf)
+                else:
+                    print(f'void',end='', file=hf)
+                        
+                
+                print(');',file=hf)
+                print(' */', file=hf)    
+                print(f'#define METHOD_NUM_{i.name.upper()} {i.id}',file=hf)
+                print(self.gen_ipc_in_struct(i,'', self.interface.server_prefix),file=hf)
+                print(self.gen_ipc_out_struct(i,'', self.interface.server_prefix ),file=hf)
+
+                print(f'extern seL4_MessageInfo_t {self.interface.server_prefix}{i.name}(seL4_CPtr ep, seL4_MessageInfo_t msginfo, void * reply, void *data);\n', file=hf)
+            
+            
+        with open(self.filebasename + '.c', 'w') as cf:
+            print(self.preamble, file=cf)
+            print(f'#include <{self.filebasename + ".h"}>',file=cf)
+
+            #for i in self.interface.includes:
+            #    if i.server:
+            #        print(f'#include {i.header}',file=cf)
+
+            print(f'seL4_MessageInfo_t {self.interface.dispatch_func}(seL4_CPtr ep, seL4_MessageInfo_t msginfo, void *reply, void *data)\n{{',file=cf)
+            print('    seL4_MessageInfo_t msg;',file=cf);
+            print('    switch (seL4_MessageInfo_get_label(msginfo)) {', file=cf)
+            for i in self.interface.methods:
+                print(f'        case METHOD_NUM_{i.name.upper()}: msg = {self.interface.server_prefix}{i.name}(ep, msginfo, reply, data); break;', file=cf)
+
+                
+            print(f'\n        default: msg = {self.interface.error_func}(ep, msginfo, reply, data);',file=cf)
+            print('    }',file=cf)
+            print('    return msg;',file=cf)
+            print('}',file=cf)
+
+

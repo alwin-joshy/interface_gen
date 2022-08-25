@@ -2,10 +2,11 @@
 import sys, argparse
 import xml.etree.ElementTree as ET
 from interface_parse import InterfaceParser
-from interface_gen import InterfacePrint, InterfaceClientStubs
+from interface_gen import InterfacePrint, InterfaceClientStubs, InterfaceServerDispatch
             
 generators = {'printer' : InterfacePrint,
-              'clientstubs' : InterfaceClientStubs
+              'clientstubs' : InterfaceClientStubs,
+              'serverdispatch' : InterfaceServerDispatch
 }
         
 def main() -> int:
