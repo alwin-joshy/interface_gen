@@ -16,7 +16,7 @@ class InterfaceGen:
         self.wordsize = wordsize
 
     def formatarg(self,a):
-        if a.const =='true':
+        if a.const:
             const = 'const '
         else:
             const=''
@@ -24,6 +24,9 @@ class InterfaceGen:
             return f'{const}{a.ctype} {a.name}'
         else:
             return f'{a.ctype} *{a.name}'
+
+    def formatcaparg(self,a):
+        return f'{a.ctype} {a.name}'
 
 
 
@@ -38,7 +41,9 @@ class InterfaceGen:
         buf=buf+f'{indent}struct {name_prefix}{self.ipc_in_struct_name(method.name)} {{'+'\n'
         for a in method.args:
             if a.direction != ArgDirection.OUT:
-                if a.const =='true':
+                if a.const and a.direction == ArgDirection.IN and '*' in a.ctype:
+                    # super hacky check if passing const pointer by value
+                    # passing values, const is discarded
                     const = 'const '
                 else:
                     const=''
@@ -49,18 +54,15 @@ class InterfaceGen:
     def gen_ipc_out_struct(self, method: Method, indent='',name_prefix=''):
         buf=''
         buf=buf+f'{indent}struct {name_prefix}{self.ipc_out_struct_name(method.name)} {{'+'\n'
-        if method.return_type != 'void':
+        if method.return_type != 'void' and method.return_type != 'seL4_MessageInfo_t':
             buf=buf+f'{indent}    {method.return_type} __ret;'+'\n'
-            for a in method.args:
-                if a.direction != ArgDirection.IN:
-                    buf=buf+f'{indent}    {a.ctype} {a.name};'+'\n'
+        for a in method.args:
+            if a.direction != ArgDirection.IN:
+                buf=buf+f'{indent}    {a.ctype} {a.name};'+'\n'
         buf=buf+f'{indent}}};'+'\n'
         return buf
 
 
-
-
-        
 class InterfacePrint(InterfaceGen):
     def __str__(self):
 
@@ -101,6 +103,7 @@ class InterfaceClientStubs(InterfaceGen):
                 if i.client:
                     print(f'#include {i.header}',file=hf)
 
+            print(f'#define sizeof_in_MRs(x)    ((sizeof(x)+{self.wordsize}-1)/{self.wordsize})',file=hf)    
             for i in self.interface.defines:
                 print(f'#define {i.name} ({i.value})', file=hf)
 
@@ -109,11 +112,13 @@ class InterfaceClientStubs(InterfaceGen):
                 print(f'extern {i.return_type} {i.name}(',end='', file=hf)
 
                     
-                if len(i.args) != 0:
-                    print(', '.join(map(self.formatarg,i.args)),end='',file=hf)
-                else:
+                if len(i.args) == 0 and len(i.cap_args) == 0:
                     print(f'void',end='', file=hf)
-                        
+                else:
+                    if len(i.args) > 0:
+                        print(', '.join(map(self.formatarg,i.args)),end='',file=hf)
+                    if len(i.cap_args) > 0:
+                        print(', '.join(map(self.formatcaparg,i.cap_args)),end='',file=hf)
                 
                 print(');\n',file=hf)
             
@@ -129,11 +134,14 @@ class InterfaceClientStubs(InterfaceGen):
             for i in self.interface.methods:
                 print(f'{i.return_type} {i.name}(',end='', file=cf)
                 
-                if len(i.args) != 0:
-                    print(', '.join(map(self.formatarg,i.args)),end='',file=cf)
-                else:
+                if len(i.args) == 0 and len(i.cap_args) == 0:
                     print(f'void',end='', file=cf)
-
+                else:
+                    if len(i.args) > 0:
+                        print(', '.join(map(self.formatarg,i.args)),end='',file=cf)
+                    if len(i.cap_args) > 0:
+                        print(', '.join(map(self.formatcaparg,i.cap_args)),end='',file=cf)
+                
                 
                 print(')\n{',file=cf)
                 print(self.gen_ipc_in_struct(i,'    '),file=cf)
@@ -142,17 +150,44 @@ class InterfaceClientStubs(InterfaceGen):
                 print(f'    seL4_IPCBuffer *ipc_buf = seL4_GetIPCBuffer();', file=cf)
                 print(f'    struct {self.ipc_in_struct_name(i.name)} *argsin_ptr = (struct {self.ipc_in_struct_name(i.name)} *) &(ipc_buf->msg[0]);', file=cf)
                 print(f'    struct {self.ipc_out_struct_name(i.name)} *argsout_ptr = (struct {self.ipc_out_struct_name(i.name)} *) &(ipc_buf->msg[0]);', file=cf)
-                print(f'    *argsin_ptr = ((struct {self.ipc_in_struct_name(i.name)}) {{', end='', file=cf)
-                initialiser = ', '.join(map(lambda a: f'{a.name}' if a.direction == ArgDirection.IN else f'*{a.name}',filter(lambda a: a.direction != ArgDirection.OUT, i.args)))
-                print(initialiser, end='',file=cf)
-                print('});',file=cf)
-                print(f'    message = seL4_MessageInfo_new(METHOD_NUM_{i.name.upper()}, 0, 0, (sizeof(struct {self.ipc_in_struct_name(i.name)}) + {self.wordsize -1 })/{self.wordsize});', file=cf)
-                print(f'    seL4_Call({i.cap}, message);',file=cf)
+
+                if len(i.args) > 0:
+                    print(f'    *argsin_ptr = ((struct {self.ipc_in_struct_name(i.name)}) {{', end='', file=cf)
+                    initialiser = ', '.join(map(lambda a: f'{a.name}' if a.direction == ArgDirection.IN else f'*{a.name}',filter(lambda a: a.direction != ArgDirection.OUT, i.args)))
+                    print(initialiser, end='',file=cf)
+                    print('});',file=cf)
+                in_caps = list(filter(lambda c: c.direction == ArgDirection.IN,i.cap_args))
+                num_in_caps = len(in_caps)
+                out_caps = list(filter(lambda c: c.direction == ArgDirection.OUT,i.cap_args))
+                num_out_caps = len(out_caps)
+
+                for ci in range(num_in_caps):
+                    print(f'    ipc_buf->caps_or_badges[{ci}] = {in_caps[ci].name};',file=cf)
+                    
+                    
+                
+                if num_out_caps == 0:
+                    pass
+                elif num_out_caps == 1:
+                   print(f'    ipc_buf->receiveCNode = {self.interface.client_cspace_root};',file=cf) 
+                   print(f'    ipc_buf->receiveIndex = {out_caps[0].name};',file=cf) 
+                   print(f'    ipc_buf->receiveDepth = {self.interface.client_cspace_depth};',file=cf) 
+                else:
+                    raise RuntimeError('Only one capability can be received')                    
+
+
+                print(f'    message = seL4_MessageInfo_new(METHOD_NUM_{i.name.upper()}, 0, {num_in_caps}, sizeof_in_MRs(struct {self.ipc_in_struct_name(i.name)}));', file=cf)
+                print(f'    message = seL4_Call({i.cap}, message);',file=cf)
                 outs = [a for a in i.args if a.direction != ArgDirection.IN]
                 for o in outs:
                     print (f'    *{o.name} = argsout_ptr->{o.name};',file=cf)
-                if i.return_type != 'void':
+                if i.return_type == 'void':
+                    pass
+                elif i.return_type == 'seL4_MessageInfo_t':
+                    print(f'    return message;', file=cf)
+                else:
                     print(f'    return argsout_ptr->__ret;', file=cf)
+
                 print('}\n\n',file=cf)
 
 
@@ -185,6 +220,7 @@ class InterfaceServerDispatch(InterfaceGen):
                 if i.server:
                     print(f'#include {i.header}',file=hf)
 
+            print(f'#define sizeof_in_MRs(x)    ((sizeof(x)+{self.wordsize}-1)/{self.wordsize})',file=hf)    
             for i in self.interface.defines:
                 print(f'#define {i.name} ({i.value})', file=hf)
 

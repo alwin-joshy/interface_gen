@@ -13,6 +13,8 @@ class Scope(Enum):
     CTYPE=auto()
     IN = auto()
     OUT = auto()
+    CAPIN = auto()
+    CAPOUT = auto()
     INOUT = auto()
 
 class ArgDirection(Enum):
@@ -20,16 +22,18 @@ class ArgDirection(Enum):
     OUT = auto()
     INOUT = auto()
 
-class IdlArgTypes(Enum):
-    VALUE = auto()
-    CAP = auto()
+#class IdlArgType(Enum):
+#    VALUE = auto()
+#    CAP = auto()
     
 class Interface:
 
-    def __init__(self, disp, err, pre):
+    def __init__(self, disp, err, pre, croot, cdepth):
         self.dispatch_func = disp
         self.server_prefix = pre
         self.error_func = err
+        self.client_cspace_root = croot
+        self.client_cspace_depth = cdepth
         self.methods = []
         self.includes = []
         self.defines = []
@@ -64,12 +68,12 @@ class Define:
         return str(self.__class__) + ": " + str(self.__dict__)
     
     
-class CType:
-    def __init__(self, name, arg_type):
-        self.name = name
-        self.arg_type = arg_type
-    def __str__(self):
-        return str(self.__class__) + ": " + str(self.__dict__)
+# class CType:
+#     def __init__(self, name, arg_type):
+#         self.name = name
+#         self.arg_type = arg_type
+#     def __str__(self):
+#         return str(self.__class__) + ": " + str(self.__dict__)
 
 class Method:
     def __str__(self):
@@ -80,19 +84,31 @@ class Method:
         self.return_type = return_type
         self.cap = cap
         self.args = []
+        self.cap_args = []
 
     def add_arg(self, arg):
         self.args.append(arg)
+        
+    def add_cap_arg(self, arg):
+        self.cap_args.append(arg)
 
 class Arg:
     def __str__(self):
         return str(self.__class__) + ": " + str(self.__dict__)
-    def __init__(self, ctype, name, arg_type, direction, const):
+    def __init__(self, ctype, name, direction, const):
         self.ctype = ctype
         self.name = name
-        self.arg_type = arg_type
         self.direction = direction
         self.const = const
+
+class CapArg:
+    def __str__(self):
+        return str(self.__class__) + ": " + str(self.__dict__)
+
+    def __init__(self, ctype, name, direction):
+        self.ctype = ctype
+        self.name = name
+        self.direction = direction
         
     
 class InterfaceParser:
@@ -100,7 +116,7 @@ class InterfaceParser:
     def __init__(self, wordsize):
         self.wordsize = wordsize
         self.scope = [Scope.XML]
-        self.ctypes = dict()
+#        self.ctypes = dict()
         self.args = []
         self.wordsize = 0
         self.interface = None
@@ -114,7 +130,17 @@ class InterfaceParser:
                 raise RuntimeError('Only a single interface allowed')
             else:
                 self.scope.append(Scope.INTERFACE)
-                self.interface = Interface(attrib['dispatch_func'], attrib['error_func'], attrib['server_prefix']);
+                if 'client_cspace_root' in attrib.keys():
+                    cspace=attrib['client_cspace_root']
+                else:
+                    cspace=""
+                    
+                if 'client_cspace_depth' in attrib.keys():
+                    cdepth=attrib['client_cspace_depth']
+                else:
+                    cdepth=""
+                    
+                self.interface = Interface(attrib['dispatch_func'], attrib['error_func'], attrib['server_prefix'],cspace,cdepth);
                 
         elif tag == 'include':
             if self.scope[-1] != Scope.INTERFACE:
@@ -136,74 +162,82 @@ class InterfaceParser:
                 self.scope.append(Scope.DEFINE)
                 self.interface.add_define(Define(attrib['name'],attrib['value']))
                 
-        elif tag == 'ctype':
-            if self.scope[-1] != Scope.INTERFACE:
-                raise RuntimeError('Define must be in <interface> scope')
-            else:
-                self.scope.append(Scope.CTYPE)
-                self.ctypes[attrib['name']] = CType(attrib['name'], attrib['type'])
+        # elif tag == 'ctype':
+        #     if self.scope[-1] != Scope.INTERFACE:
+        #         raise RuntimeError('Define must be in <interface> scope')
+        #     else:
+        #         self.scope.append(Scope.CTYPE)
+        #         self.ctypes[attrib['name']] = CType(attrib['name'], attrib['type'])
         
         elif tag == 'method':
             if self.scope[-1] != Scope.INTERFACE:
                 raise RuntimeError('Method definition outside interface scope')
             else:
                 self.scope.append(Scope.METHOD)
-                if attrib['return_type'] in self.ctypes:
-                    # More extensive checks required
-                    self.cur_method = Method(attrib['name'],int(attrib['id']),attrib['return_type'],attrib['clientcap'])
+                # More extensive checks required
+                if 'return_type' not in attrib.keys():
+                    rt = 'seL4_MessageInfo_t'
                 else:
-                    raise RuntimeError('method return type not defined "%s"' % attrib['return_type'] )
+                    rt = attrib['return_type']
+                    
+                self.cur_method = Method(attrib['name'],int(attrib['id']),rt,attrib['clientcap'])
+
                 
         elif tag == 'in':
             if self.scope[-1] != Scope.METHOD:
                 raise RuntimeError('arg definition outside method scope')
             else:
                 self.scope.append(Scope.IN)
-                ctype = attrib['ctype']
+
                 if 'const' in attrib.keys():
-                    const = attrib['const']
+                    const = (attrib['const'].lower() == 'true')
                 else:
-                    const = 'false'
-                if ctype in self.ctypes:
+                    const = False
                     
-                    self.cur_method.add_arg(Arg(attrib['ctype'],
+                self.cur_method.add_arg(Arg(attrib['ctype'],
                                                 attrib['name'],
-                                                self.ctypes[ctype].arg_type,
                                                 ArgDirection.IN,
                                                 const))
-                else:
-                    raise RuntimeError(f'Args ctype not defined "{ctype}"')
-                
+                                
         elif tag == 'out':
             if self.scope[-1] != Scope.METHOD:
                 raise RuntimeError('arg definition outside method scope')
             else:
                 self.scope.append(Scope.OUT)
-                ctype = attrib['ctype']
-                if ctype in self.ctypes:
                     
-                    self.cur_method.add_arg(Arg(attrib['ctype'],
+                self.cur_method.add_arg(Arg(attrib['ctype'],
                                                 attrib['name'],
-                                                self.ctypes[ctype].arg_type,
-                                                ArgDirection.OUT, 'false'))
-                else:
-                    raise RuntimeError('Args ctype not defined')
+                                                ArgDirection.OUT, False))
 
         elif tag == 'inout':
             if self.scope[-1] != Scope.METHOD:
                 raise RuntimeError('arg definition outside method scope')
             else:
                 self.scope.append(Scope.INOUT)
-                ctype = attrib['ctype']
-                if ctype in self.ctypes:
                     
-                    self.cur_method.add_arg(Arg(attrib['ctype'],
-                                                attrib['name'],
-                                                self.ctypes[ctype].arg_type,
-                                                ArgDirection.INOUT, 'false'))
-                else:
-                    raise RuntimeError('Args ctype not defined')
+                self.cur_method.add_arg(Arg(attrib['ctype'],
+                                            attrib['name'],
+                                            ArgDirection.INOUT, False))
 
+        elif tag == 'capin':
+            if self.scope[-1] != Scope.METHOD:
+                raise RuntimeError('arg definition outside method scope')
+            else:
+                self.scope.append(Scope.CAPIN)
+                    
+                self.cur_method.add_cap_arg(CapArg(attrib['ctype'],
+                                            attrib['name'],
+                                            ArgDirection.IN))
+
+        elif tag == 'capout':
+            if self.scope[-1] != Scope.METHOD:
+                raise RuntimeError('arg definition outside method scope')
+            else:
+                self.scope.append(Scope.CAPOUT)
+                    
+                self.cur_method.add_cap_arg(CapArg(attrib['ctype'],
+                                            attrib['name'],
+                                            ArgDirection.OUT))
         else:
             raise RuntimeError(f'Unknown xml tag: {tag}')
         
@@ -243,6 +277,16 @@ class InterfaceParser:
         elif tag == 'out':
             if self.scope[-1] != Scope.OUT:
                 raise RuntimeError('Missing <out> arg start')
+            else:
+                self.scope.pop()
+        elif tag == 'capin':
+            if self.scope[-1] != Scope.CAPIN:
+                raise RuntimeError('Missing <capin> arg start')
+            else:
+                self.scope.pop()
+        elif tag == 'capout':
+            if self.scope[-1] != Scope.CAPOUT:
+                raise RuntimeError('Missing <capout> arg start')
             else:
                 self.scope.pop()
         elif tag == 'inout':
