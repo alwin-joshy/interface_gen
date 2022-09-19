@@ -78,11 +78,12 @@ class Define:
 class Method:
     def __str__(self):
         return str(self.__class__) + ": " + str(self.__dict__)
-    def __init__(self, name, id, return_type, cap):
+    def __init__(self, name, id, return_type, invocation_is_arg, invocation_cap):
         self.name = name
         self.id = id
         self.return_type = return_type
-        self.cap = cap
+        self.invocation_is_arg = invocation_is_arg
+        self.invocation_cap = invocation_cap
         self.args = []
         self.cap_args = []
 
@@ -180,7 +181,7 @@ class InterfaceParser:
                 else:
                     rt = attrib['return_type']
                     
-                self.cur_method = Method(attrib['name'],int(attrib['id']),rt,attrib['clientcap'])
+                self.cur_method = Method(attrib['name'],int(attrib['id']),rt, attrib["invocation_is_arg"].lower() == 'true', attrib['invocation_cap'])
 
                 
         elif tag == 'in':

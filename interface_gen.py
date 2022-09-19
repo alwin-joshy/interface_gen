@@ -111,12 +111,18 @@ class InterfaceClientStubs(InterfaceGen):
                 print(f'#define METHOD_NUM_{i.name.upper()} {i.id}',file=hf)
                 print(f'extern {i.return_type} {i.name}(',end='', file=hf)
 
+                if i.invocation_is_arg:
+                    print(f'seL4_CPtr {i.invocation_cap}', end='', file=hf)
                     
-                if len(i.args) == 0 and len(i.cap_args) == 0:
+                if not i.invocation_is_arg and len(i.args) == 0 and len(i.cap_args) == 0:
                     print(f'void',end='', file=hf)
-                else:
+                elif len(i.args) > 0 or len(i.cap_args) > 0:
+                    if i.invocation_is_arg:
+                        print(f", ", end='', file=hf)
+
                     if len(i.args) > 0:
                         print(', '.join(map(self.formatarg,i.args)),end=(', ' if len(i.cap_args) > 0 else ''),file=hf)
+                    
                     if len(i.cap_args) > 0:
                         print(', '.join(map(self.formatcaparg,i.cap_args)),end='',file=hf)
                 
@@ -134,14 +140,20 @@ class InterfaceClientStubs(InterfaceGen):
             for i in self.interface.methods:
                 print(f'{i.return_type} {i.name}(',end='', file=cf)
                 
-                if len(i.args) == 0 and len(i.cap_args) == 0:
+                if i.invocation_is_arg:
+                    print(f'seL4_CPtr {i.invocation_cap}', end='', file=cf)
+                    
+                if not i.invocation_is_arg and len(i.args) == 0 and len(i.cap_args) == 0:
                     print(f'void',end='', file=cf)
-                else:
+                elif len(i.args) > 0 or len(i.cap_args) > 0:
+                    if (i.invocation_is_arg):
+                        print(f", ", end='', file=cf)
+
                     if len(i.args) > 0:
                         print(', '.join(map(self.formatarg,i.args)),end=(', ' if len(i.cap_args) > 0 else ''), file=cf)
+
                     if len(i.cap_args) > 0:
                         print(', '.join(map(self.formatcaparg,i.cap_args)),end='',file=cf)
-                
                 
                 print(')\n{',file=cf)
                 print(self.gen_ipc_in_struct(i,'    '),file=cf)
@@ -177,7 +189,7 @@ class InterfaceClientStubs(InterfaceGen):
 
 
                 print(f'    message = seL4_MessageInfo_new(METHOD_NUM_{i.name.upper()}, 0, {num_in_caps}, sizeof_in_MRs(struct {self.ipc_in_struct_name(i.name)}));', file=cf)
-                print(f'    message = seL4_Call({i.cap}, message);',file=cf)
+                print(f'    message = seL4_Call({i.invocation_cap}, message);',file=cf)
                 outs = [a for a in i.args if a.direction != ArgDirection.IN]
                 for o in outs:
                     print (f'    *{o.name} = argsout_ptr->{o.name};',file=cf)
