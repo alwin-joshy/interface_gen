@@ -116,7 +116,7 @@ class InterfaceClientStubs(InterfaceGen):
                     print(f'void',end='', file=hf)
                 else:
                     if len(i.args) > 0:
-                        print(', '.join(map(self.formatarg,i.args)),end='',file=hf)
+                        print(', '.join(map(self.formatarg,i.args)),end=(', ' if len(i.cap_args) > 0 else ''),file=hf)
                     if len(i.cap_args) > 0:
                         print(', '.join(map(self.formatcaparg,i.cap_args)),end='',file=hf)
                 
@@ -138,7 +138,7 @@ class InterfaceClientStubs(InterfaceGen):
                     print(f'void',end='', file=cf)
                 else:
                     if len(i.args) > 0:
-                        print(', '.join(map(self.formatarg,i.args)),end='',file=cf)
+                        print(', '.join(map(self.formatarg,i.args)),end=(', ' if len(i.cap_args) > 0 else ''), file=cf)
                     if len(i.cap_args) > 0:
                         print(', '.join(map(self.formatcaparg,i.cap_args)),end='',file=cf)
                 
