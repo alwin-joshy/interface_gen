@@ -121,7 +121,8 @@ class InterfaceParser:
         self.args = []
         self.wordsize = 0
         self.interface = None
-    
+        self.highest_method_id = 0
+
     def __str__(self):
         return str(self.__class__) + ": " + str(self.__dict__)
 
@@ -180,13 +181,27 @@ class InterfaceParser:
                     rt = 'seL4_MessageInfo_t'
                 else:
                     rt = attrib['return_type']
-                    
-                self.cur_method = Method(attrib['name'],int(attrib['id']),rt, attrib["invocation_is_arg"].lower() == 'true', attrib['invocation_cap'])
+
+                id = 0;
+                if (attrib["id"].isdigit()):
+                    id = int(attrib["id"])
+                    if (id > self.highest_method_id):
+                        self.highest_method_id = id
+                    else:
+                        raise RuntimeError("Have functions in order please")
+                elif (attrib["id"] == "*"):
+                    if (self.highest_method_id == 0):
+                        raise RuntimeError("At least give the first method an ID")
+                    self.highest_method_id += 1
+                    id = self.highest_method_id
+                else:
+                    raise RuntimeError("Invalid method id")
+                self.cur_method = Method(attrib['name'],id,rt, attrib["invocation_is_arg"].lower() == 'true', attrib['invocation_cap'])
 
                 
         elif tag == 'in':
             if self.scope[-1] != Scope.METHOD:
-                raise RuntimeError('arg definition outside method scope')
+                raise RuntimeError('arg definition outside method scope' + attrib['name'])
             else:
                 self.scope.append(Scope.IN)
 
