@@ -80,7 +80,14 @@ class InterfacePrint(InterfaceGen):
 
         for i in self.interface.methods:
             print(f'{i.name}[id={i.id}](',end='')
-            print(', '.join(map(self.formatarg,i.args)),end='')
+            if i.invocation_is_arg:
+                print(f'seL4_CPtr {i.invocation_cap}', end='')
+            if len(i.args) > 0:
+                print(', '.join(map(self.formatarg,i.args)),end=(', ' if len(i.cap_args) > 0 else ''))
+                    
+            if len(i.cap_args) > 0:
+                print(', '.join(map(self.formatcaparg,i.cap_args)),end='')
+            #print(', '.join(map(self.formatarg,i.args)),end='')
             print(f') -> {i.return_type}')
 
 
