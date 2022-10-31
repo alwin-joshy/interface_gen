@@ -16,6 +16,7 @@ class Scope(Enum):
     CAPIN = auto()
     CAPOUT = auto()
     INOUT = auto()
+    STRIN = auto()
 
 class ArgDirection(Enum):
     IN = auto()
@@ -86,12 +87,16 @@ class Method:
         self.invocation_cap = invocation_cap
         self.args = []
         self.cap_args = []
+        self.str_args = []
 
     def add_arg(self, arg):
         self.args.append(arg)
         
     def add_cap_arg(self, arg):
         self.cap_args.append(arg)
+
+    def add_str_arg(self, arg):
+        self.str_args.append(arg)
 
 class Arg:
     def __str__(self):
@@ -108,6 +113,14 @@ class CapArg:
 
     def __init__(self, ctype, name, direction):
         self.ctype = ctype
+        self.name = name
+        self.direction = direction
+        
+class StrArg:
+    def __str__(self):
+        return str(self.__class__) + ": " + str(self.__dict__)
+
+    def __init__(self, name, direction):
         self.name = name
         self.direction = direction
         
@@ -254,6 +267,14 @@ class InterfaceParser:
                 self.cur_method.add_cap_arg(CapArg(attrib['ctype'],
                                             attrib['name'],
                                             ArgDirection.OUT))
+        elif tag == 'strin':
+            if self.scope[-1] != Scope.METHOD:
+                raise RuntimeError('arg definition outside method scope')
+            else:
+                self.scope.append(Scope.STRIN)
+                    
+                self.cur_method.add_str_arg(StrArg(attrib['name'],
+                                                   ArgDirection.IN))
         else:
             raise RuntimeError(f'Unknown xml tag: {tag}')
         
@@ -303,6 +324,11 @@ class InterfaceParser:
         elif tag == 'capout':
             if self.scope[-1] != Scope.CAPOUT:
                 raise RuntimeError('Missing <capout> arg start')
+            else:
+                self.scope.pop()
+        elif tag == 'strin':
+            if self.scope[-1] != Scope.STRIN:
+                raise RuntimeError('Missing <strin> arg start')
             else:
                 self.scope.pop()
         elif tag == 'inout':

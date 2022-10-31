@@ -88,9 +88,38 @@ class InterfacePrint(InterfaceGen):
             if len(i.cap_args) > 0:
                 print(', '.join(map(self.formatcaparg,i.cap_args)),end='')
             #print(', '.join(map(self.formatarg,i.args)),end='')
+            if len(i.str_args) > 0:
+                if len(i.str_args) > 1:
+                    raise RuntimeError('More than one string arg not supported')
+                print(', char* ' + i.str_args[0].name, end='')
+                    
             print(f') -> {i.return_type}')
 
 
+
+
+# strncpy code
+
+strncpylen_code = '''
+
+static inline size_t strncpylen(char *dest, char *src, size_t n)
+{
+
+    /* hacky naive that needs improvement */
+    size_t s = 0;
+    while (s < n && src[s] != 0) {
+        dest[s] = src[s];
+        s++;
+    }
+    if (s < n) {
+        dest[s] = src[s];
+        return s + 1;
+    }
+    return s;
+}
+'''
+
+            
 
 # should add check the id are greater than seL4_NumErrors
 
@@ -110,9 +139,13 @@ class InterfaceClientStubs(InterfaceGen):
                 if i.client:
                     print(f'#include {i.header}',file=hf)
 
-            print(f'#define sizeof_in_MRs(x)    ((sizeof(x)+{self.wordsize}-1)/{self.wordsize})',file=hf)    
             for i in self.interface.defines:
                 print(f'#define {i.name} ({i.value})', file=hf)
+
+            # Some helper functions on the client side
+            print(f'#define ROUND_TO_MRs(x)    (((x)+{self.wordsize}-1)/{self.wordsize})',file=hf)    
+            print(f'#define SIZEOF_IN_MRs(x)    ((sizeof(x)+{self.wordsize}-1)/{self.wordsize})',file=hf)    
+            print(strncpylen_code,file=hf)
 
             for i in self.interface.methods:
                 print(f'#define METHOD_NUM_{i.name.upper()} {i.id}',file=hf)
@@ -121,9 +154,9 @@ class InterfaceClientStubs(InterfaceGen):
                 if i.invocation_is_arg:
                     print(f'seL4_CPtr {i.invocation_cap}', end='', file=hf)
                     
-                if not i.invocation_is_arg and len(i.args) == 0 and len(i.cap_args) == 0:
+                if not i.invocation_is_arg and len(i.args) == 0 and len(i.cap_args) == 0 and len(i.str_args) == 0:
                     print(f'void',end='', file=hf)
-                elif len(i.args) > 0 or len(i.cap_args) > 0:
+                elif len(i.args) > 0 or len(i.cap_args) > 0 or len(i.str_args) > 0:
                     if i.invocation_is_arg:
                         print(f", ", end='', file=hf)
 
@@ -132,7 +165,11 @@ class InterfaceClientStubs(InterfaceGen):
                     
                     if len(i.cap_args) > 0:
                         print(', '.join(map(self.formatcaparg,i.cap_args)),end='',file=hf)
-                
+                        
+                    if len(i.str_args) > 0:
+                        if len(i.str_args) > 1:
+                            raise RuntimeError('More than one string arg not supported')
+                        print(', char* ' + i.str_args[0].name, end='', file=hf)
                 print(');\n',file=hf)
             
             
@@ -150,9 +187,9 @@ class InterfaceClientStubs(InterfaceGen):
                 if i.invocation_is_arg:
                     print(f'seL4_CPtr {i.invocation_cap}', end='', file=cf)
                     
-                if not i.invocation_is_arg and len(i.args) == 0 and len(i.cap_args) == 0:
+                if not i.invocation_is_arg and len(i.args) == 0 and len(i.cap_args) == 0 and len(i.str_args) == 0:
                     print(f'void',end='', file=cf)
-                elif len(i.args) > 0 or len(i.cap_args) > 0:
+                elif len(i.args) > 0 or len(i.cap_args) > 0 or len(i.str_args) > 0:
                     if (i.invocation_is_arg):
                         print(f", ", end='', file=cf)
 
@@ -161,6 +198,13 @@ class InterfaceClientStubs(InterfaceGen):
 
                     if len(i.cap_args) > 0:
                         print(', '.join(map(self.formatcaparg,i.cap_args)),end='',file=cf)
+
+
+                    if len(i.str_args) > 0:
+                        if len(i.str_args) > 1:
+                            raise RuntimeError('Only a single string arg is supported')
+                        else:
+                            print(', char* ' + i.str_args[0].name,end='',file=cf)
                 
                 print(')\n{',file=cf)
                 print(self.gen_ipc_in_struct(i,'    '),file=cf)
@@ -175,6 +219,16 @@ class InterfaceClientStubs(InterfaceGen):
                     initialiser = ', '.join(map(lambda a: f'{a.name}' if a.direction == ArgDirection.IN else f'*{a.name}',filter(lambda a: a.direction != ArgDirection.OUT, i.args)))
                     print(initialiser, end='',file=cf)
                     print('});',file=cf)
+
+                if (len(i.str_args) == 1):
+                    print(f'''
+    size_t l;
+    l = strncpylen(
+                   (char *) &(ipc_buf->msg[SIZEOF_IN_MRs(struct {self.ipc_in_struct_name(i.name)})]),
+                   {i.str_args[0].name},
+                   (seL4_MsgMaxLength - SIZEOF_IN_MRs(struct {self.ipc_in_struct_name(i.name)})) * {self.wordsize});
+''',file=cf)
+                    
                 in_caps = list(filter(lambda c: c.direction == ArgDirection.IN,i.cap_args))
                 num_in_caps = len(in_caps)
                 out_caps = list(filter(lambda c: c.direction == ArgDirection.OUT,i.cap_args))
@@ -195,7 +249,11 @@ class InterfaceClientStubs(InterfaceGen):
                     raise RuntimeError('Only one capability can be received')                    
 
 
-                print(f'    message = seL4_MessageInfo_new(METHOD_NUM_{i.name.upper()}, 0, {num_in_caps}, sizeof_in_MRs(struct {self.ipc_in_struct_name(i.name)}));', file=cf)
+                print(f'    message = seL4_MessageInfo_new(METHOD_NUM_{i.name.upper()}, 0, {num_in_caps}, SIZEOF_IN_MRs(struct {self.ipc_in_struct_name(i.name)})', end='', file=cf)
+                if len(i.str_args) == 1:
+                    print(f' + ROUND_TO_MRs(l)', end='',file=cf)
+                print(f');', file=cf)
+                
                 print(f'    message = seL4_Call({i.invocation_cap}, message);',file=cf)
                 outs = [a for a in i.args if a.direction != ArgDirection.IN]
                 for o in outs:
