@@ -209,7 +209,12 @@ class InterfaceParser:
                     id = self.highest_method_id
                 else:
                     raise RuntimeError("Invalid method id")
-                self.cur_method = Method(attrib['name'],id,rt, attrib["invocation_is_arg"].lower() == 'true', attrib['invocation_cap'])
+                if 'invocation_is_arg' in attrib.keys():
+                    invocation_arg = attrib["invocation_is_arg"].lower() == 'true'
+                else:
+                    invocation_arg = False
+                    
+                self.cur_method = Method(attrib['name'],id,rt, invocation_arg, attrib['invocation_cap'])
 
                 
         elif tag == 'in':
