@@ -153,7 +153,7 @@ class InterfaceLatexPrint(InterfaceGen):
 
             print('\\subsubsection*{Description}')
             if i.desc != '':
-                print(f'\n{i.desc}')
+                print(f'\n{self.sntz(i.desc)}')
 
             has_args = len(i.args)+len(i.cap_args)+len(i.str_args) > 0 or i.invocation_is_arg 
             if has_args > 0:
@@ -165,14 +165,14 @@ class InterfaceLatexPrint(InterfaceGen):
                     print(f'A capability to the server to invoke.')
                 for a in i.args:
                     print(f'\\item[\\texttt{{{self.sntz(self.formatarg(a))}}}]',end='')
-                    print(f'{a.desc}')
+                    print(f'{self.sntz(a.desc)}')
 
                 for a in i.cap_args:
                     print(f'\\item[\\texttt{{{self.sntz(self.formatcaparg(a))}}}]')
-                    print(f'{a.desc}')
+                    print(f'{self.sntz(a.desc)}')
                 for a in i.str_args:
                     print(f'\\item[\\texttt{{char* {self.sntz(a.name)}}}]')
-                    print(f'{a.desc}')
+                    print(f'{self.sntz(a.desc)}')
                 print('\\end{description}')
                 
 
