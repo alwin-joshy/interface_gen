@@ -1,5 +1,6 @@
 #!/usr/bin/python3
-from interface_parse import Interface, ArgDirection, Method
+from interface_parse import Interface, ArgDirection, Method, MethodStatus
+import re
 
 class InterfaceGen:
     preamble = '''
@@ -100,6 +101,80 @@ class InterfacePrint(InterfaceGen):
 
 
 
+class InterfaceLatexPrint(InterfaceGen):
+    
+    def __str__(self):
+
+        return str(self.__class__) + ": " + str(self.__dict__)
+
+    def sntz(self, string):
+        s = re.sub('_','\_',string)
+        return s
+    def start_proto(self,string):
+        print('\\subsubsection*{Prototype}')
+        print('\\begin{tabbing}')
+        print(self.sntz(string + '\\='))
+            
+    def end_proto(self,string):
+        print(self.sntz(string))
+        print('\\end{tabbing}')
+
+    def __init__(self, interface, filebasename = '', wordsize=8):
+
+        super().__init__(interface, filebasename, wordsize)
+
+        
+        
+        for i in self.interface.methods:
+            args_list = []
+            print(self.sntz(f'\\methodhead{{{i.name}}}'))
+            if i.status == MethodStatus.PROPOSED:
+                print('\\framebox{\\textbf{Proposed}}\\\\')
+            elif i.status == MethodStatus.PARTIAL:
+                print('\\framebox{\\textbf{Partial Implementation}}\\\\')
+            else:
+                print('\\framebox{\\textbf{Implemented}}\\\\')
+                
+            self.start_proto(f'{i.return_type} {i.name}(')
+            if i.invocation_is_arg:
+                    inv_arg =f'seL4_CPtr {i.invocation_cap}'
+                    args_list.append(inv_arg)
+            if len(i.args) > 0:
+                args_list = args_list + list(map(self.formatarg,i.args))
+            if len(i.cap_args) > 0:
+                args_list = args_list + list(map(self.formatcaparg,i.cap_args))
+            if len(i.str_args) > 0:
+                if len(i.str_args) > 1:
+                    raise RuntimeError('More than one string arg not supported')
+                args_list.append('char* ' + i.str_args[0].name)
+            if len(args_list) > 0:
+                print(self.sntz(', \\\\ \\>'.join(args_list)))
+            self.end_proto(f')\\\\')
+
+            print('\\subsubsection*{Description}')
+            if i.desc != '':
+                print(f'\n{i.desc}')
+
+            has_args = len(i.args)+len(i.cap_args)+len(i.str_args) > 0 or i.invocation_is_arg 
+            if has_args > 0:
+                print('\\subsubsection*{Arguments}')
+                print('\\begin{description}')
+                if i.invocation_is_arg:
+
+                    print(f'\\item[\\texttt{{{self.sntz(inv_arg)}}}]',end='')
+                    print(f'A capability to the server to invoke.')
+                for a in i.args:
+                    print(f'\\item[\\texttt{{{self.sntz(self.formatarg(a))}}}]',end='')
+                    print(f'{a.desc}')
+
+                for a in i.cap_args:
+                    print(f'\\item[\\texttt{{{self.sntz(self.formatcaparg(a))}}}]')
+                    print(f'{a.desc}')
+                for a in i.str_args:
+                    print(f'\\item[\\texttt{{char* {self.sntz(a.name)}}}]')
+                    print(f'{a.desc}')
+                print('\\end{description}')
+                
 
 # strncpy code
 
@@ -152,29 +227,30 @@ class InterfaceClientStubs(InterfaceGen):
             print(strncpylen_code,file=hf)
 
             for i in self.interface.methods:
-                print(f'#define METHOD_NUM_{i.name.upper()} {i.id}',file=hf)
-                print(f'extern {i.return_type} {i.name}(',end='', file=hf)
+                if not i.status == MethodStatus.PROPOSED:
+                    print(f'#define METHOD_NUM_{i.name.upper()} {i.id}',file=hf)
+                    print(f'extern {i.return_type} {i.name}(',end='', file=hf)
 
-                if i.invocation_is_arg:
-                    print(f'seL4_CPtr {i.invocation_cap}', end='', file=hf)
-                    
-                if not i.invocation_is_arg and len(i.args) == 0 and len(i.cap_args) == 0 and len(i.str_args) == 0:
-                    print(f'void',end='', file=hf)
-                elif len(i.args) > 0 or len(i.cap_args) > 0 or len(i.str_args) > 0:
                     if i.invocation_is_arg:
-                        print(f", ", end='', file=hf)
-
-                    if len(i.args) > 0:
-                        print(', '.join(map(self.formatarg,i.args)),end=(', ' if len(i.cap_args) > 0 else ''),file=hf)
+                        print(f'seL4_CPtr {i.invocation_cap}', end='', file=hf)
                     
-                    if len(i.cap_args) > 0:
-                        print(', '.join(map(self.formatcaparg,i.cap_args)),end='',file=hf)
+                    if not i.invocation_is_arg and len(i.args) == 0 and len(i.cap_args) == 0 and len(i.str_args) == 0:
+                        print(f'void',end='', file=hf)
+                    elif len(i.args) > 0 or len(i.cap_args) > 0 or len(i.str_args) > 0:
+                        if i.invocation_is_arg:
+                            print(f", ", end='', file=hf)
+
+                        if len(i.args) > 0:
+                            print(', '.join(map(self.formatarg,i.args)),end=(', ' if len(i.cap_args) > 0 else ''),file=hf)
+                    
+                        if len(i.cap_args) > 0:
+                            print(', '.join(map(self.formatcaparg,i.cap_args)),end='',file=hf)
                         
-                    if len(i.str_args) > 0:
-                        if len(i.str_args) > 1:
-                            raise RuntimeError('More than one string arg not supported')
-                        print(', char* ' + i.str_args[0].name, end='', file=hf)
-                print(');\n',file=hf)
+                        if len(i.str_args) > 0:
+                            if len(i.str_args) > 1:
+                                raise RuntimeError('More than one string arg not supported')
+                            print(', char* ' + i.str_args[0].name, end='', file=hf)
+                    print(');\n',file=hf)
             
             
         with open(self.filebasename + '.c', 'w') as cf:
@@ -186,90 +262,91 @@ class InterfaceClientStubs(InterfaceGen):
 
 
             for i in self.interface.methods:
-                print(f'{i.return_type} {i.name}(',end='', file=cf)
-                
-                if i.invocation_is_arg:
-                    print(f'seL4_CPtr {i.invocation_cap}', end='', file=cf)
-                    
-                if not i.invocation_is_arg and len(i.args) == 0 and len(i.cap_args) == 0 and len(i.str_args) == 0:
-                    print(f'void',end='', file=cf)
-                elif len(i.args) > 0 or len(i.cap_args) > 0 or len(i.str_args) > 0:
-                    if (i.invocation_is_arg):
-                        print(f", ", end='', file=cf)
+                if not i.status == MethodStatus.PROPOSED:
+                    print(f'{i.return_type} {i.name}(',end='', file=cf)
+
+                    if i.invocation_is_arg:
+                        print(f'seL4_CPtr {i.invocation_cap}', end='', file=cf)
+
+                    if not i.invocation_is_arg and len(i.args) == 0 and len(i.cap_args) == 0 and len(i.str_args) == 0:
+                        print(f'void',end='', file=cf)
+                    elif len(i.args) > 0 or len(i.cap_args) > 0 or len(i.str_args) > 0:
+                        if (i.invocation_is_arg):
+                            print(f", ", end='', file=cf)
+
+                        if len(i.args) > 0:
+                            print(', '.join(map(self.formatarg,i.args)),end=(', ' if len(i.cap_args) > 0 else ''), file=cf)
+
+                        if len(i.cap_args) > 0:
+                            print(', '.join(map(self.formatcaparg,i.cap_args)),end='',file=cf)
+
+
+                        if len(i.str_args) > 0:
+                            if len(i.str_args) > 1:
+                                raise RuntimeError('Only a single string arg is supported')
+                            else:
+                                print(', char* ' + i.str_args[0].name,end='',file=cf)
+
+                    print(')\n{',file=cf)
+                    print(self.gen_ipc_in_struct(i,'    '),file=cf)
+                    print(self.gen_ipc_out_struct(i,'    '),file=cf)
+                    print(f'    seL4_MessageInfo_t message;', file=cf)
+                    print(f'    seL4_IPCBuffer *ipc_buf = seL4_GetIPCBuffer();', file=cf)
+                    print(f'    struct {self.ipc_in_struct_name(i.name)} *argsin_ptr = (struct {self.ipc_in_struct_name(i.name)} *) &(ipc_buf->msg[0]);', file=cf)
+                    print(f'    struct {self.ipc_out_struct_name(i.name)} *argsout_ptr = (struct {self.ipc_out_struct_name(i.name)} *) &(ipc_buf->msg[0]);', file=cf)
 
                     if len(i.args) > 0:
-                        print(', '.join(map(self.formatarg,i.args)),end=(', ' if len(i.cap_args) > 0 else ''), file=cf)
+                        print(f'    *argsin_ptr = ((struct {self.ipc_in_struct_name(i.name)}) {{', end='', file=cf)
+                        initialiser = ', '.join(map(lambda a: f'{a.name}' if a.direction == ArgDirection.IN else f'*{a.name}',filter(lambda a: a.direction != ArgDirection.OUT, i.args)))
+                        print(initialiser, end='',file=cf)
+                        print('});',file=cf)
 
-                    if len(i.cap_args) > 0:
-                        print(', '.join(map(self.formatcaparg,i.cap_args)),end='',file=cf)
+                    if (len(i.str_args) == 1):
+                        print(f'''
+        size_t l;
+        l = strncpylen(
+                       (char *) &(ipc_buf->msg[SIZEOF_IN_MRs(struct {self.ipc_in_struct_name(i.name)})]),
+                       {i.str_args[0].name},
+                       (seL4_MsgMaxLength - SIZEOF_IN_MRs(struct {self.ipc_in_struct_name(i.name)})) * {self.wordsize});
+    ''',file=cf)
 
+                    in_caps = list(filter(lambda c: c.direction == ArgDirection.IN,i.cap_args))
+                    num_in_caps = len(in_caps)
+                    out_caps = list(filter(lambda c: c.direction == ArgDirection.OUT,i.cap_args))
+                    num_out_caps = len(out_caps)
 
-                    if len(i.str_args) > 0:
-                        if len(i.str_args) > 1:
-                            raise RuntimeError('Only a single string arg is supported')
-                        else:
-                            print(', char* ' + i.str_args[0].name,end='',file=cf)
-                
-                print(')\n{',file=cf)
-                print(self.gen_ipc_in_struct(i,'    '),file=cf)
-                print(self.gen_ipc_out_struct(i,'    '),file=cf)
-                print(f'    seL4_MessageInfo_t message;', file=cf)
-                print(f'    seL4_IPCBuffer *ipc_buf = seL4_GetIPCBuffer();', file=cf)
-                print(f'    struct {self.ipc_in_struct_name(i.name)} *argsin_ptr = (struct {self.ipc_in_struct_name(i.name)} *) &(ipc_buf->msg[0]);', file=cf)
-                print(f'    struct {self.ipc_out_struct_name(i.name)} *argsout_ptr = (struct {self.ipc_out_struct_name(i.name)} *) &(ipc_buf->msg[0]);', file=cf)
-
-                if len(i.args) > 0:
-                    print(f'    *argsin_ptr = ((struct {self.ipc_in_struct_name(i.name)}) {{', end='', file=cf)
-                    initialiser = ', '.join(map(lambda a: f'{a.name}' if a.direction == ArgDirection.IN else f'*{a.name}',filter(lambda a: a.direction != ArgDirection.OUT, i.args)))
-                    print(initialiser, end='',file=cf)
-                    print('});',file=cf)
-
-                if (len(i.str_args) == 1):
-                    print(f'''
-    size_t l;
-    l = strncpylen(
-                   (char *) &(ipc_buf->msg[SIZEOF_IN_MRs(struct {self.ipc_in_struct_name(i.name)})]),
-                   {i.str_args[0].name},
-                   (seL4_MsgMaxLength - SIZEOF_IN_MRs(struct {self.ipc_in_struct_name(i.name)})) * {self.wordsize});
-''',file=cf)
-                    
-                in_caps = list(filter(lambda c: c.direction == ArgDirection.IN,i.cap_args))
-                num_in_caps = len(in_caps)
-                out_caps = list(filter(lambda c: c.direction == ArgDirection.OUT,i.cap_args))
-                num_out_caps = len(out_caps)
-
-                for ci in range(num_in_caps):
-                    print(f'    ipc_buf->caps_or_badges[{ci}] = {in_caps[ci].name};',file=cf)
-                    
-                    
-                
-                if num_out_caps == 0:
-                    pass
-                elif num_out_caps == 1:
-                   print(f'    ipc_buf->receiveCNode = {self.interface.client_cspace_root};',file=cf) 
-                   print(f'    ipc_buf->receiveIndex = {out_caps[0].name};',file=cf) 
-                   print(f'    ipc_buf->receiveDepth = {self.interface.client_cspace_depth};',file=cf) 
-                else:
-                    raise RuntimeError('Only one capability can be received')                    
+                    for ci in range(num_in_caps):
+                        print(f'    ipc_buf->caps_or_badges[{ci}] = {in_caps[ci].name};',file=cf)
 
 
-                print(f'    message = seL4_MessageInfo_new(METHOD_NUM_{i.name.upper()}, 0, {num_in_caps}, SIZEOF_IN_MRs(struct {self.ipc_in_struct_name(i.name)})', end='', file=cf)
-                if len(i.str_args) == 1:
-                    print(f' + ROUND_TO_MRs(l)', end='',file=cf)
-                print(f');', file=cf)
-                
-                print(f'    message = seL4_Call({i.invocation_cap}, message);',file=cf)
-                outs = [a for a in i.args if a.direction != ArgDirection.IN]
-                for o in outs:
-                    print (f'    *{o.name} = argsout_ptr->{o.name};',file=cf)
-                if i.return_type == 'void':
-                    pass
-                elif i.return_type == 'seL4_MessageInfo_t':
-                    print(f'    return message;', file=cf)
-                else:
-                    print(f'    return argsout_ptr->__ret;', file=cf)
 
-                print('}\n\n',file=cf)
+                    if num_out_caps == 0:
+                        pass
+                    elif num_out_caps == 1:
+                       print(f'    ipc_buf->receiveCNode = {self.interface.client_cspace_root};',file=cf) 
+                       print(f'    ipc_buf->receiveIndex = {out_caps[0].name};',file=cf) 
+                       print(f'    ipc_buf->receiveDepth = {self.interface.client_cspace_depth};',file=cf) 
+                    else:
+                        raise RuntimeError('Only one capability can be received')                    
+
+
+                    print(f'    message = seL4_MessageInfo_new(METHOD_NUM_{i.name.upper()}, 0, {num_in_caps}, SIZEOF_IN_MRs(struct {self.ipc_in_struct_name(i.name)})', end='', file=cf)
+                    if len(i.str_args) == 1:
+                        print(f' + ROUND_TO_MRs(l)', end='',file=cf)
+                    print(f');', file=cf)
+
+                    print(f'    message = seL4_Call({i.invocation_cap}, message);',file=cf)
+                    outs = [a for a in i.args if a.direction != ArgDirection.IN]
+                    for o in outs:
+                        print (f'    *{o.name} = argsout_ptr->{o.name};',file=cf)
+                    if i.return_type == 'void':
+                        pass
+                    elif i.return_type == 'seL4_MessageInfo_t':
+                        print(f'    return message;', file=cf)
+                    else:
+                        print(f'    return argsout_ptr->__ret;', file=cf)
+
+                    print('}\n\n',file=cf)
 
 
 
@@ -309,23 +386,24 @@ class InterfaceServerDispatch(InterfaceGen):
             print(f'extern seL4_MessageInfo_t {self.interface.error_func}(seL4_CPtr ep, seL4_MessageInfo_t msginfo, void *reply, void *data);',file=hf)
 
             for i in self.interface.methods:
-                print('\n/****************************************', file=hf)
-                print(f' * extern {i.return_type} {i.name}(',end='', file=hf)
-                if len(i.args) != 0:
-                    print(', '.join(map(self.formatarg,i.args)),end='',file=hf)
-                else:
-                    print(f'void',end='', file=hf)
-                        
-                
-                print(');',file=hf)
-                print(' */', file=hf)    
-                print(f'#define METHOD_NUM_{i.name.upper()} {i.id}',file=hf)
-                print(self.gen_ipc_in_struct(i,'', self.interface.server_prefix),file=hf)
-                print(self.gen_ipc_out_struct(i,'', self.interface.server_prefix ),file=hf)
-                if len(i.str_args) > 0:
-                    print(f'#define STR_OFFSET_{self.interface.server_prefix.upper()}{i.name.upper()}(x) ((char *) &((x)->msg[SIZEOF_IN_MRs(struct {self.interface.server_prefix}{self.ipc_in_struct_name(i.name)})]));',file=hf)
-                print(f'extern seL4_MessageInfo_t {self.interface.server_prefix}{i.name}(seL4_CPtr ep, seL4_MessageInfo_t msginfo, void * reply, void *data);\n', file=hf)
-            
+                if not i.status == MethodStatus.PROPOSED:
+                    print('\n/****************************************', file=hf)
+                    print(f' * extern {i.return_type} {i.name}(',end='', file=hf)
+                    if len(i.args) != 0:
+                        print(', '.join(map(self.formatarg,i.args)),end='',file=hf)
+                    else:
+                        print(f'void',end='', file=hf)
+
+
+                    print(');',file=hf)
+                    print(' */', file=hf)    
+                    print(f'#define METHOD_NUM_{i.name.upper()} {i.id}',file=hf)
+                    print(self.gen_ipc_in_struct(i,'', self.interface.server_prefix),file=hf)
+                    print(self.gen_ipc_out_struct(i,'', self.interface.server_prefix ),file=hf)
+                    if len(i.str_args) > 0:
+                        print(f'#define STR_OFFSET_{self.interface.server_prefix.upper()}{i.name.upper()}(x) ((char *) &((x)->msg[SIZEOF_IN_MRs(struct {self.interface.server_prefix}{self.ipc_in_struct_name(i.name)})]));',file=hf)
+                    print(f'extern seL4_MessageInfo_t {self.interface.server_prefix}{i.name}(seL4_CPtr ep, seL4_MessageInfo_t msginfo, void * reply, void *data);\n', file=hf)
+
             
         with open(self.filebasename + '.c', 'w') as cf:
             print(self.preamble, file=cf)
@@ -339,7 +417,8 @@ class InterfaceServerDispatch(InterfaceGen):
             print('    seL4_MessageInfo_t msg;',file=cf);
             print('    switch (seL4_MessageInfo_get_label(msginfo)) {', file=cf)
             for i in self.interface.methods:
-                print(f'        case METHOD_NUM_{i.name.upper()}: msg = {self.interface.server_prefix}{i.name}(ep, msginfo, reply, data); break;', file=cf)
+                if not i.status == MethodStatus.PROPOSED:
+                    print(f'        case METHOD_NUM_{i.name.upper()}: msg = {self.interface.server_prefix}{i.name}(ep, msginfo, reply, data); break;', file=cf)
 
                 
             print(f'\n        default: msg = {self.interface.error_func}(ep, msginfo, reply, data);',file=cf)
