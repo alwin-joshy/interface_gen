@@ -148,7 +148,7 @@ class InterfaceLatexPrint(InterfaceGen):
                     raise RuntimeError('More than one string arg not supported')
                 args_list.append('char* ' + i.str_args[0].name)
             if len(args_list) > 0:
-                print(self.sntz(', \\\\ \\>'.join(args_list)))
+                print(self.sntz(', \\\\\\>'.join(args_list)),end='')
             self.end_proto(f')\\\\')
 
             print('\\subsubsection*{Description}')
