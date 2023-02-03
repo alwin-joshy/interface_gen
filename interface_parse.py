@@ -16,6 +16,7 @@ class Scope(Enum):
     CAPIN = auto()
     CAPOUT = auto()
     INOUT = auto()
+    STRIN = auto()
 
 class ArgDirection(Enum):
     IN = auto()
@@ -25,6 +26,12 @@ class ArgDirection(Enum):
 #class IdlArgType(Enum):
 #    VALUE = auto()
 #    CAP = auto()
+
+
+class MethodStatus(Enum):
+    PROPOSED = auto() # don't generate prototypes, not implemented
+    PARTIAL = auto() # generate prototype, immature implementation
+    IMPLEMENTED = auto() # generate prototype, substantially implemented
     
 class Interface:
 
@@ -78,7 +85,9 @@ class Define:
 class Method:
     def __str__(self):
         return str(self.__class__) + ": " + str(self.__dict__)
-    def __init__(self, name, id, return_type, invocation_is_arg, invocation_cap):
+    def __init__(self, name, id, return_type,
+                 invocation_is_arg, invocation_cap, desc,
+                 status):
         self.name = name
         self.id = id
         self.return_type = return_type
@@ -86,6 +95,9 @@ class Method:
         self.invocation_cap = invocation_cap
         self.args = []
         self.cap_args = []
+        self.str_args = []
+        self.desc = desc
+        self.status = status
 
     def add_arg(self, arg):
         self.args.append(arg)
@@ -93,23 +105,37 @@ class Method:
     def add_cap_arg(self, arg):
         self.cap_args.append(arg)
 
+    def add_str_arg(self, arg):
+        self.str_args.append(arg)
+
 class Arg:
     def __str__(self):
         return str(self.__class__) + ": " + str(self.__dict__)
-    def __init__(self, ctype, name, direction, const):
+    def __init__(self, ctype, name, direction, const, desc):
         self.ctype = ctype
         self.name = name
         self.direction = direction
         self.const = const
+        self.desc = desc
 
 class CapArg:
     def __str__(self):
         return str(self.__class__) + ": " + str(self.__dict__)
 
-    def __init__(self, ctype, name, direction):
+    def __init__(self, ctype, name, direction, desc):
         self.ctype = ctype
         self.name = name
         self.direction = direction
+        self.desc = desc
+        
+class StrArg:
+    def __str__(self):
+        return str(self.__class__) + ": " + str(self.__dict__)
+
+    def __init__(self, name, direction, desc):
+        self.name = name
+        self.direction = direction
+        self.desc = desc
         
     
 class InterfaceParser:
@@ -182,6 +208,22 @@ class InterfaceParser:
                 else:
                     rt = attrib['return_type']
 
+                if 'desc' in attrib.keys():
+                    desc = attrib['desc']
+                else:
+                    desc = ''
+                    
+                if 'status' in attrib.keys():
+                    status = attrib['status'].lower()
+                    if status == 'prop':
+                        methstatus = MethodStatus.PROPOSED
+                    elif status == 'part':
+                        methstatus = MethodStatus.PARTIAL
+                    else:
+                        methstatus = MethodStatus.IMPLEMENTED
+                else:
+                    methstatus = MethodStatus.IMPLEMENTED
+                    
                 id = 0;
                 if (attrib["id"].isdigit()):
                     id = int(attrib["id"])
@@ -196,7 +238,18 @@ class InterfaceParser:
                     id = self.highest_method_id
                 else:
                     raise RuntimeError("Invalid method id")
-                self.cur_method = Method(attrib['name'],id,rt, attrib["invocation_is_arg"].lower() == 'true', attrib['invocation_cap'])
+                if 'invocation_is_arg' in attrib.keys():
+                    invocation_arg = attrib["invocation_is_arg"].lower() == 'true'
+                else:
+                    invocation_arg = False
+                    
+                self.cur_method = Method(attrib['name'],
+                                         id,
+                                         rt,
+                                         invocation_arg,
+                                         attrib['invocation_cap'],
+                                         desc,
+                                         methstatus)
 
                 
         elif tag == 'in':
@@ -209,11 +262,14 @@ class InterfaceParser:
                     const = (attrib['const'].lower() == 'true')
                 else:
                     const = False
-                    
+                if 'desc' in attrib.keys():
+                    desc = attrib['desc']
+                else:
+                    desc = ''
                 self.cur_method.add_arg(Arg(attrib['ctype'],
                                                 attrib['name'],
                                                 ArgDirection.IN,
-                                                const))
+                                                const,desc))
                                 
         elif tag == 'out':
             if self.scope[-1] != Scope.METHOD:
@@ -221,39 +277,80 @@ class InterfaceParser:
             else:
                 self.scope.append(Scope.OUT)
                     
+                if 'desc' in attrib.keys():
+                    desc = attrib['desc']
+                else:
+                    desc = ''
+
                 self.cur_method.add_arg(Arg(attrib['ctype'],
-                                                attrib['name'],
-                                                ArgDirection.OUT, False))
+                                            attrib['name'],
+                                            ArgDirection.OUT,
+                                            False,
+                                            desc))
 
         elif tag == 'inout':
             if self.scope[-1] != Scope.METHOD:
                 raise RuntimeError('arg definition outside method scope')
             else:
                 self.scope.append(Scope.INOUT)
-                    
+
+                if 'desc' in attrib.keys():
+                    desc = attrib['desc']
+                else:
+                    desc = ''
+
                 self.cur_method.add_arg(Arg(attrib['ctype'],
                                             attrib['name'],
-                                            ArgDirection.INOUT, False))
+                                            ArgDirection.INOUT,
+                                            False,
+                                            desc))
 
         elif tag == 'capin':
             if self.scope[-1] != Scope.METHOD:
                 raise RuntimeError('arg definition outside method scope')
             else:
                 self.scope.append(Scope.CAPIN)
-                    
+
+                if 'desc' in attrib.keys():
+                    desc = attrib['desc']
+                else:
+                    desc = ''
+
                 self.cur_method.add_cap_arg(CapArg(attrib['ctype'],
-                                            attrib['name'],
-                                            ArgDirection.IN))
+                                                   attrib['name'],
+                                                   ArgDirection.IN,
+                                                   desc))
 
         elif tag == 'capout':
             if self.scope[-1] != Scope.METHOD:
                 raise RuntimeError('arg definition outside method scope')
             else:
                 self.scope.append(Scope.CAPOUT)
+
+                if 'desc' in attrib.keys():
+                    desc = attrib['desc']
+                else:
+                    desc = ''
                     
                 self.cur_method.add_cap_arg(CapArg(attrib['ctype'],
-                                            attrib['name'],
-                                            ArgDirection.OUT))
+                                                   attrib['name'],
+                                                   ArgDirection.OUT,
+                                                   desc))
+        elif tag == 'strin':
+            if self.scope[-1] != Scope.METHOD:
+                raise RuntimeError('arg definition outside method scope')
+            else:
+                self.scope.append(Scope.STRIN)
+
+                if 'desc' in attrib.keys():
+                    desc = attrib['desc']
+                else:
+                    desc = ''
+
+                    
+                self.cur_method.add_str_arg(StrArg(attrib['name'],
+                                                   ArgDirection.IN,
+                                                   desc))
         else:
             raise RuntimeError(f'Unknown xml tag: {tag}')
         
@@ -303,6 +400,11 @@ class InterfaceParser:
         elif tag == 'capout':
             if self.scope[-1] != Scope.CAPOUT:
                 raise RuntimeError('Missing <capout> arg start')
+            else:
+                self.scope.pop()
+        elif tag == 'strin':
+            if self.scope[-1] != Scope.STRIN:
+                raise RuntimeError('Missing <strin> arg start')
             else:
                 self.scope.pop()
         elif tag == 'inout':
