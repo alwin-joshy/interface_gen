@@ -185,6 +185,9 @@ static inline size_t strncpylen(char *dest, char *src, size_t n)
 
     /* hacky naive that needs improvement */
     size_t s = 0;
+    if (src == NULL) {
+        return s;
+    }
     while (s < n && src[s] != 0) {
         dest[s] = src[s];
         s++;
