@@ -111,12 +111,13 @@ class Method:
 class Arg:
     def __str__(self):
         return str(self.__class__) + ": " + str(self.__dict__)
-    def __init__(self, ctype, name, direction, const, desc):
+    def __init__(self, ctype, name, direction, const, desc, optional):
         self.ctype = ctype
         self.name = name
         self.direction = direction
         self.const = const
         self.desc = desc
+        self.optional = optional
 
 class CapArg:
     def __str__(self):
@@ -269,7 +270,7 @@ class InterfaceParser:
                 self.cur_method.add_arg(Arg(attrib['ctype'],
                                                 attrib['name'],
                                                 ArgDirection.IN,
-                                                const,desc))
+                                                const,desc, False))
                                 
         elif tag == 'out':
             if self.scope[-1] != Scope.METHOD:
@@ -281,12 +282,17 @@ class InterfaceParser:
                     desc = attrib['desc']
                 else:
                     desc = ''
+                
+                if 'optional' in attrib.keys():
+                    is_optional = attrib['optional'].lower() == 'true'
+                else:
+                    is_optional = False
 
                 self.cur_method.add_arg(Arg(attrib['ctype'],
                                             attrib['name'],
                                             ArgDirection.OUT,
                                             False,
-                                            desc))
+                                            desc, is_optional))
 
         elif tag == 'inout':
             if self.scope[-1] != Scope.METHOD:
@@ -303,7 +309,7 @@ class InterfaceParser:
                                             attrib['name'],
                                             ArgDirection.INOUT,
                                             False,
-                                            desc))
+                                            desc, False))
 
         elif tag == 'capin':
             if self.scope[-1] != Scope.METHOD:

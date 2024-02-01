@@ -341,7 +341,11 @@ class InterfaceClientStubs(InterfaceGen):
                     print(f'    message = seL4_Call({i.invocation_cap}, message);',file=cf)
                     outs = [a for a in i.args if a.direction != ArgDirection.IN]
                     for o in outs:
-                        print (f'    *{o.name} = argsout_ptr->{o.name};',file=cf)
+                        if (o.optional):
+                            print (f'    if ({o.name} != NULL)',file=cf)
+                            print (f'       *{o.name} = argsout_ptr->{o.name};',file=cf)
+                        else:
+                            print (f'    *{o.name} = argsout_ptr->{o.name};',file=cf)
                     if i.return_type == 'void':
                         pass
                     elif i.return_type == 'seL4_MessageInfo_t':
